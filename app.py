@@ -3,6 +3,7 @@ import subprocess
 import os
 import pandas as pd
 from PIL import Image
+import sys
 
 # Sayfa ayarları (Geniş ekran modu)
 st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide")
@@ -18,7 +19,7 @@ dosya_tarih = secilen_tarih.strftime("%Y-%m-%d")     # 2026-10-14 (Dosya isimler
 if st.sidebar.button("Tahmini Getir / Çalıştır"):
     with st.spinner(f"{tarih_str} için meteorolojik veriler işleniyor ve model çalıştırılıyor..."):
         # Modeli arka planda çalıştır
-        komut = f"python res_uretim_tahmini.py --gun {tarih_str}"
+        komut = f"{sys.executable} res_uretim_tahmini.py --gun {tarih_str}"
         subprocess.run(komut, shell=True)
         
     st.success(f"✅ {tarih_str} tarihli analiz başarıyla tamamlandı.")
