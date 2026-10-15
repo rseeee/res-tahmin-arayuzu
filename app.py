@@ -7,8 +7,8 @@ import sys
 import base64
 import datetime
 
-# Sayfa ayarları (Geniş ekran modu) - Bu her zaman en üstte olmalıdır
-st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide")
+# Sayfa ayarları (Geniş ekran modu ve mobil için menünün açık/erişilebilir olması)
+st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide", initial_sidebar_state="expanded")
 
 # --- ARKA PLAN AYARLAMA KODU BAŞLANGICI ---
 def arkaplan_ayarla(resim_dosyasi):
@@ -16,24 +16,23 @@ def arkaplan_ayarla(resim_dosyasi):
         with open(resim_dosyasi, "rb") as f:
             kodlanmis_resim = base64.b64encode(f.read()).decode("utf-8")
         
-     css_kodu = f"""
+        css_kodu = f"""
         <style>
-        /* Arka plan görseli */
         .stApp {{
             background-image: url("data:image/jpeg;base64,{kodlanmis_resim}");
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
         }}
-        /* Üst çubuğun sadece arka planını şeffaf yap (kaydırma iskeletini BOZMA) */
+        /* Üst çubuğun arka planını şeffaf yap, kaydırma (swipe) iskeletini BOZMA */
         header {{
             background-color: transparent !important;
         }}
-        /* Sadece SAĞ üstteki logoları (GitHub, Deploy) gizle */
+        /* Sadece sağ üstteki GitHub logolarını ve ayar butonunu gizle */
         [data-testid="stToolbar"] {{
             display: none !important;
         }}
-        /* Sadece SAĞ alttaki komik meme / creator rozetini gizle */
+        /* Sağ alttaki komik meme / creator rozetini tamamen gizle */
         .viewerBadge_container {{
             display: none !important;
         }}
@@ -109,7 +108,6 @@ if st.sidebar.button("Tahmini Getir / Çalıştır"):
 
     # --- 2. O GÜNÜN SAATLİK TAHMİNİ ---
     st.subheader("⏱️ Saatlik Üretim Eğrisi")
-    # Kod bazen "1_bugun_yarin", bazen "1_iki_gun" olarak kaydediyor, ikisini de kontrol ediyoruz
     if os.path.exists(bugun_yarin_grafik):
         st.image(Image.open(bugun_yarin_grafik), use_container_width=True)
     elif os.path.exists(iki_gun_grafik):
@@ -117,17 +115,16 @@ if st.sidebar.button("Tahmini Getir / Çalıştır"):
     else:
         st.warning("Saatlik detay grafiği bulunamadı.")
         
-    st.divider() # Araya şık bir çizgi çeker
+    st.divider() 
     
     # --- 3. HAFTALIK ÖNGÖRÜLER (Tablo ve Bar Grafik Yanyana) ---
     st.header("📊 7 Günlük Haftalık Öngörüler")
     
-    tablo_sutunu, grafik_sutunu = st.columns([1, 2]) # Grafik kısmı daha geniş olsun (1'e 2 oran)
+    tablo_sutunu, grafik_sutunu = st.columns([1, 2]) 
     
     with tablo_sutunu:
         st.markdown("##### Gün Gün Tablo")
         if os.path.exists(gunluk_csv):
-            # İndeksleri gizleyerek tabloyu ekrana basıyoruz
             st.dataframe(df_hafta, use_container_width=True, hide_index=True)
             toplam_üretim = df_hafta['MWh'].sum()
             st.info(f"**7 Günlük Toplam Beklenti:** {toplam_üretim:.1f} MWh")
