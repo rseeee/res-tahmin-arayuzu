@@ -16,32 +16,32 @@ def arkaplan_ayarla(resim_dosyasi):
         with open(resim_dosyasi, "rb") as f:
             kodlanmis_resim = base64.b64encode(f.read()).decode("utf-8")
         
-        css_kodu = f"""
+     css_kodu = f"""
         <style>
+        /* Arka plan görseli */
         .stApp {{
             background-image: url("data:image/jpeg;base64,{kodlanmis_resim}");
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
         }}
-        /* Üstteki GitHub ve menü çubuğunu gizler */
-        .stApp > header {{
-            display: none !important;
+        /* Üst çubuğun sadece arka planını şeffaf yap (kaydırma iskeletini BOZMA) */
+        header {{
+            background-color: transparent !important;
         }}
-        /* Sağdaki profil resmini (meme) ve deploy butonunu gizler */
-        .viewerBadge_container {{
-            display: none !important;
-        }}
-        .stAppDeployButton {{
-            display: none !important;
-        }}
+        /* Sadece SAĞ üstteki logoları (GitHub, Deploy) gizle */
         [data-testid="stToolbar"] {{
             display: none !important;
         }}
-        /* Alttaki Streamlit logosunu gizler */
-        footer {{
-            visibility: hidden;
+        /* Sadece SAĞ alttaki komik meme / creator rozetini gizle */
+        .viewerBadge_container {{
+            display: none !important;
         }}
+        /* En alttaki Streamlit yazısını gizle */
+        footer {{
+            display: none !important;
+        }}
+        /* Yazıların okunabilirliği için siyah transparan kutu */
         .block-container {{
             background-color: rgba(0, 0, 0, 0.65);
             padding: 2rem;
