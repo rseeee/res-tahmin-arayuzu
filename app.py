@@ -7,8 +7,8 @@ import sys
 import base64
 import datetime
 
-# Sayfa ayarları (Geniş ekran modu ve mobil için menünün açık/erişilebilir olması)
-st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide", initial_sidebar_state="expanded")
+# Sayfa ayarları (Geniş ekran modu, sidebar ayarını orijinale döndürdük)
+st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide")
 
 # --- ARKA PLAN AYARLAMA KODU BAŞLANGICI ---
 def arkaplan_ayarla(resim_dosyasi):
@@ -24,16 +24,24 @@ def arkaplan_ayarla(resim_dosyasi):
             background-position: center;
             background-attachment: fixed;
         }}
-        /* Üst çubuğun arka planını şeffaf yap, kaydırma (swipe) iskeletini BOZMA */
-        header {{
+        /* Üst çubuğu şeffaf yap ama YAPISINI BOZMA */
+        [data-testid="stHeader"] {{
             background-color: transparent !important;
         }}
-        /* Sadece sağ üstteki GitHub logolarını ve ayar butonunu gizle */
+        /* Sol üstteki menü açma ikonunu (>) her zaman görünür ve tıklanabilir yap */
+        [data-testid="collapsedControl"] {{
+            display: flex !important;
+            background-color: rgba(0, 0, 0, 0.4) !important;
+            color: white !important;
+            border-radius: 5px;
+            margin: 5px;
+        }}
+        /* Sadece SAĞ üstteki logoları (GitHub, Deploy) gizle */
         [data-testid="stToolbar"] {{
             display: none !important;
         }}
-        /* Sağ alttaki komik meme / creator rozetini tamamen gizle */
-        .viewerBadge_container {{
+        /* Sadece SAĞ alttaki komik meme / creator rozetini gizle */
+        .viewerBadge_container, .stAppDeployButton {{
             display: none !important;
         }}
         /* En alttaki Streamlit yazısını gizle */
