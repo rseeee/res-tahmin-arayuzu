@@ -7,8 +7,8 @@ import sys
 import base64
 import datetime
 
-# Sayfa ayarları (Geniş ekran modu, sidebar ayarını orijinale döndürdük)
-st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide")
+# Sayfa ayarları (Menü açık başlasın)
+st.set_page_config(page_title="RES Üretim Tahmin Paneli", layout="wide", initial_sidebar_state="expanded")
 
 # --- ARKA PLAN AYARLAMA KODU BAŞLANGICI ---
 def arkaplan_ayarla(resim_dosyasi):
@@ -24,27 +24,19 @@ def arkaplan_ayarla(resim_dosyasi):
             background-position: center;
             background-attachment: fixed;
         }}
-        /* Üst çubuğu şeffaf yap ama YAPISINI BOZMA */
-        [data-testid="stHeader"] {{
-            background-color: transparent !important;
+        /* Üst çubuğun sadece rengini şeffaf yapıyoruz, kendisine DOKUNMUYORUZ (Menü butonu yaşayacak) */
+        header[data-testid="stHeader"] {{
+            background: transparent !important;
         }}
-        /* Sol üstteki menü açma ikonunu (>) her zaman görünür ve tıklanabilir yap */
-        [data-testid="collapsedControl"] {{
-            display: flex !important;
-            background-color: rgba(0, 0, 0, 0.4) !important;
-            color: white !important;
-            border-radius: 5px;
-            margin: 5px;
-        }}
-        /* Sadece SAĞ üstteki logoları (GitHub, Deploy) gizle */
-        [data-testid="stToolbar"] {{
+        /* SAĞ ÜST: Sadece Deploy butonunu ve 3 nokta menüyü gizle */
+        .stAppDeployButton, [data-testid="stToolbar"] {{
             display: none !important;
         }}
-        /* Sadece SAĞ alttaki komik meme / creator rozetini gizle */
-        .viewerBadge_container, .stAppDeployButton {{
+        /* SAĞ ALT: Sadece Meme (Creator Badge) rozetini gizle */
+        .viewerBadge_container {{
             display: none !important;
         }}
-        /* En alttaki Streamlit yazısını gizle */
+        /* EN ALT: Streamlit yazısını gizle */
         footer {{
             display: none !important;
         }}
@@ -86,26 +78,22 @@ dosya_tarih = secilen_tarih.strftime("%Y-%m-%d")     # 2026-10-14 (Dosya isimler
 
 if st.sidebar.button("Tahmini Getir / Çalıştır"):
     with st.spinner(f"{tarih_str} için meteorolojik veriler işleniyor ve model çalıştırılıyor..."):
-        # Modeli arka planda çalıştır
         komut = f"{sys.executable} res_uretim_tahmini.py --gun {tarih_str}"
         subprocess.run(komut, shell=True)
         
     st.success(f"✅ {tarih_str} tarihli analiz başarıyla tamamlandı.")
     
-    # Çıktıların kaydedildiği klasör
     hedef_klasor = f"ÇIKTILAR/{tarih_str}"
     
-    # Arka planda üretilen dosya yolları
     gunluk_csv = f"{hedef_klasor}/{dosya_tarih}_gunluk_ozet.csv"
     bugun_yarin_grafik = f"{hedef_klasor}/{dosya_tarih}_1_bugun_yarin.png"
     iki_gun_grafik = f"{hedef_klasor}/{dosya_tarih}_1_iki_gun.png"
     hafta_gunluk_grafik = f"{hedef_klasor}/{dosya_tarih}_2_hafta_gunluk.png"
 
-    # --- 1. SEÇİLEN GÜNÜN TAHMİNİ (Büyük Metrikler) ---
     st.header(f"📅 {tarih_str} Üretim Tahmini")
     if os.path.exists(gunluk_csv):
         df_hafta = pd.read_csv(gunluk_csv)
-        secilen_gun = df_hafta.iloc[0] # İlk satır seçilen gündür
+        secilen_gun = df_hafta.iloc[0]
         
         col1, col2, col3 = st.columns(3)
         col1.metric(label="Tarih", value=secilen_gun['tarih'])
@@ -114,7 +102,6 @@ if st.sidebar.button("Tahmini Getir / Çalıştır"):
     else:
         st.error("Veri tablosu (CSV) bulunamadı.")
 
-    # --- 2. O GÜNÜN SAATLİK TAHMİNİ ---
     st.subheader("⏱️ Saatlik Üretim Eğrisi")
     if os.path.exists(bugun_yarin_grafik):
         st.image(Image.open(bugun_yarin_grafik), use_container_width=True)
@@ -125,7 +112,6 @@ if st.sidebar.button("Tahmini Getir / Çalıştır"):
         
     st.divider() 
     
-    # --- 3. HAFTALIK ÖNGÖRÜLER (Tablo ve Bar Grafik Yanyana) ---
     st.header("📊 7 Günlük Haftalık Öngörüler")
     
     tablo_sutunu, grafik_sutunu = st.columns([1, 2]) 
