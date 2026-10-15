@@ -24,8 +24,23 @@ def arkaplan_ayarla(resim_dosyasi):
             background-position: center;
             background-attachment: fixed;
         }}
+        /* Üstteki GitHub ve menü çubuğunu gizler */
         .stApp > header {{
-            background-color: transparent;
+            display: none !important;
+        }}
+        /* Sağdaki profil resmini (meme) ve deploy butonunu gizler */
+        .viewerBadge_container {{
+            display: none !important;
+        }}
+        .stAppDeployButton {{
+            display: none !important;
+        }}
+        [data-testid="stToolbar"] {{
+            display: none !important;
+        }}
+        /* Alttaki Streamlit logosunu gizler */
+        footer {{
+            visibility: hidden;
         }}
         .block-container {{
             background-color: rgba(0, 0, 0, 0.65);
