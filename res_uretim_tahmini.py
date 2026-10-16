@@ -115,6 +115,17 @@ def load_power_curve():
 CURVE_V, CURVE_P = load_power_curve()
 
 
+# Öğrenilmiş rüzgar düzeltme eğrisi: model rüzgar hızına göre değişen çarpan (EGRI_V noktalarında, arası doğrusal).
+# None ise eski yöntem (tek çarpan + elle parçalı ayar) kullanılır. kalibrasyon.json içindeki "egri" bunu doldurur.
+EGRI_V = [4.0, 7.0, 10.0, 13.0]
+EGRI = None
+
+
+def egri_ayarla(m):
+    global EGRI
+    EGRI = None if m is None else [float(x) for x in m]
+
+
 # ----------------------------- FİZİK -----------------------------
 def hub_wind(d: pd.DataFrame) -> pd.Series:
     """10 m ve 100 m rüzgardan kayma üsteli ile hub yüksekliğindeki rüzgar hızı."""
@@ -129,20 +140,24 @@ def to_power_kw(d: pd.DataFrame, carpan: float = 1.0) -> pd.Series:
     DİNAMİK PARÇALI ÇARPAN İLE GÜNCELLENDİ."""
     v_raw = hub_wind(d)
 
-    # Parçalı (Piecewise) Rüzgar Kalibrasyonu
-    v_hub = v_raw.copy()
-    mask_low = v_raw < 4.0
-    mask_mid = (v_raw >= 4.0) & (v_raw < 12.0)
-    mask_high = v_raw >= 12.0
+    if EGRI is not None:
+        # SCADA verisinden öğrenilmiş, hıza bağlı düzeltme eğrisi (carpan kullanılmaz)
+        v_hub = v_raw * np.interp(v_raw, EGRI_V, EGRI)
+    else:
+        # Parçalı (Piecewise) Rüzgar Kalibrasyonu
+        v_hub = v_raw.copy()
+        mask_low = v_raw < 4.0
+        mask_mid = (v_raw >= 4.0) & (v_raw < 12.0)
+        mask_high = v_raw >= 12.0
 
-    # 1. Cut-in bölgesi: Zayıf rüzgarları ölü bölgeden çıkarmak için agresif çarpan
-    v_hub[mask_low] = v_raw[mask_low] * (carpan * 1.15)
+        # 1. Cut-in bölgesi: Zayıf rüzgarları ölü bölgeden çıkarmak için agresif çarpan
+        v_hub[mask_low] = v_raw[mask_low] * (carpan * 1.15)
 
-    # 2. Kübik tırmanma: SCADA'dan öğrenilen standart çarpan
-    v_hub[mask_mid] = v_raw[mask_mid] * carpan
+        # 2. Kübik tırmanma: SCADA'dan öğrenilen standart çarpan
+        v_hub[mask_mid] = v_raw[mask_mid] * carpan
 
-    # 3. Plato bölgesi: 4.26 MW aşımını engellemek için çarpan etkisini sönümle
-    v_hub[mask_high] = v_raw[mask_high] * (1.0 + (carpan - 1.0) * 0.5)
+        # 3. Plato bölgesi: 4.26 MW aşımını engellemek için çarpan etkisini sönümle
+        v_hub[mask_high] = v_raw[mask_high] * (1.0 + (carpan - 1.0) * 0.5)
 
     # hub yüksekliğinde hava yoğunluğu, güç eğrisi 1,225 kg/m3 içindir
     t_hub = d["temperature_2m"] + 273.15 - 0.0065 * (HUB - 2)
@@ -259,7 +274,10 @@ def forecast_ens(raw, carpan, w=None):
 def hub_ruzgar(raw, carpan=1.0, w=None):
     """Hub yüksekliğinde modellerin ağırlıklı ortalama rüzgar hızı (m/s); carpan=1 ise çarpansız."""
     w = w if w is not None else aktif_agirliklar()
-    V = pd.DataFrame({m: hub_wind(d) * _k(carpan, m) for m, d in raw.items()})
+    if EGRI is not None:
+        V = pd.DataFrame({m: hub_wind(d) * np.interp(hub_wind(d), EGRI_V, EGRI) for m, d in raw.items()})
+    else:
+        V = pd.DataFrame({m: hub_wind(d) * _k(carpan, m) for m, d in raw.items()})
     ws = pd.Series({m: w.get(m, 1.0) for m in V.columns})
     num = V.mul(ws, axis=1).sum(axis=1, min_count=1)
     den = V.notna().mul(ws, axis=1).sum(axis=1)
@@ -325,17 +343,18 @@ AYLIK_DOSYALARI = ["aylik.csv", "aylik_ornek.csv", "aylik.xlsx", "aylik_ornek.xl
 
 
 def otomatik_kalibre():
-    """kalibrasyon.json yok veya ayarlarla uyumsuzsa, yanındaki aylik/gunluk dosyasıyla sessizce kalibre eder."""
+    """kalibrasyon.json yok veya ayarlarla uyumsuzsa, yanındaki aylık VE günlük dosyanın hepsine birlikte uyan
+    rüzgar düzeltme eğrisini sessizce öğrenir (run_birlesik)."""
     f_ay = next((f for f in AYLIK_DOSYALARI if Path(f).exists()), None)
-    f = f_ay or gunluk_dosya()
+    f_gun = gunluk_dosya()
+    f = " + ".join(x for x in (f_ay, f_gun) if x) or None
     if not f or _OTO["aktif"]:
         return None, f
     _OTO["aktif"] = True
-    print(f"Kalibrasyon güncel değil; {f} ile otomatik ayarlanıyor...")
     k = None
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            k = run_aylik(f) if f_ay else run_daily(f, kalibre=True)
+            k = run_birlesik(f_ay, f_gun)
     except (SystemExit, Exception):
         k = None
     finally:
@@ -347,12 +366,16 @@ def otomatik_kalibre():
 
 def secili_carpan(otomatik=True):
     """Kullanılacak rüzgar çarpanı ve kaynağı: elle > kalibrasyon.json > otomatik kalibrasyon > atlas oranı."""
+    egri_ayarla(None)
     if CARPAN is not None:
         return float(CARPAN), "elle girilen"
     if KALIBRASYON.exists():
         c = json.loads(KALIBRASYON.read_text())
         w_kayit = {m: float(x) for m, x in c.get("agirlik", {m: 1.0 for m in MODELS}).items()}
         if abs(c.get("loss", 0) - LOSS) < 1e-9 and c.get("hub") == HUB and w_kayit == aktif_agirliklar():
+            if c.get("egri"):
+                egri_ayarla(c["egri"])
+                return float(c["k"]), f"kalibre (hıza bağlı eğri, {c['gun']} gün, {c['tarih']})"
             if c.get("k_model"):
                 return {m: float(x) for m, x in c["k_model"].items()}, f"kalibre (modele özel, {c['gun']} gün, {c['tarih']})"
             tur = "aylık toplamlar, " if c.get("tur") == "aylik" else ""
@@ -362,6 +385,7 @@ def secili_carpan(otomatik=True):
         k, f = otomatik_kalibre()
         if k is not None:
             c = json.loads(KALIBRASYON.read_text())
+            egri_ayarla(c.get("egri"))
             return float(k), f"otomatik kalibre ({c['gun']} gün, {f})"
     return compute_speedup(), "atlas oranı (KALİBRE DEĞİL: gunluk.csv ekle veya --kalibre çalıştır)"
 
@@ -695,6 +719,7 @@ def daily_mwh(raws, carpanlar, w=None):
 def fit_carpan(raws, t, w=None):
     """Gerçek günlük enerjilere en iyi uyan rüzgar çarpanı.
     Nominal plato günlerinde (gerçek ≈ tavan) yalnızca düşük tahmin cezalandırılır, çünkü plato çarpanı belirlemez."""
+    egri_ayarla(None)           # tek çarpan taraması: öğrenilmiş eğri devre dışı
     tavan = GUNLUK_TAVAN_MWH * LOSS
     plato = (t["Gerçek"] >= 0.985 * tavan).to_numpy()
     ks = np.round(np.arange(0.70, 1.6001, 0.005), 3)
@@ -804,6 +829,7 @@ def load_monthly(path):
 
 def run_aylik(path):
     """Aylık SCADA toplamlarına en iyi uyan rüzgar çarpanını bulur ve kaydeder. Son günleri doğrulama için gösterir."""
+    egri_ayarla(None)           # tek çarpan taraması: öğrenilmiş eğri devre dışı
     t = load_monthly(path)
     if t.empty:
         raise SystemExit("Aylık veri bulunamadı.")
@@ -870,9 +896,105 @@ def run_aylik(path):
     return k_yeni
 
 
+def run_birlesik(f_ay=None, f_gun=None):
+    """Aylık ve günlük SCADA verisinin HEPSİNE birlikte en iyi uyan rüzgar düzeltme eğrisini öğrenir ve kaydeder.
+    Eğri, model rüzgar hızına göre değişen çarpandır (EGRI_V noktalarında). Gözlemler: her ay 1 gözlem (ağırlık √gün sayısı),
+    her gün 1 gözlem (ağırlık 1); aylara giren günler iki kez sayılmaz. Nominal plato günlerinde yalnızca düşük tahmin cezalanır.
+    Veri azsa eğri yerine tek çarpan (sabit eğri) kaydedilir."""
+    tavan = GUNLUK_TAVAN_MWH * LOSS
+    obs, kapali = [], set()
+    t_gun = load_daily(f_gun) if f_gun else None
+    if f_ay:
+        for _, r in load_monthly(f_ay).iterrows():
+            g = list(pd.date_range(r["bas"], r["son"]))
+            if t_gun is not None and int(t_gun["tarih"].isin(g).sum()) >= 10:
+                continue                      # o ay için günlük veri var: günlük daha ayrıntılı, aylık toplam kullanılmaz
+            kapali.update(g)
+            obs.append({"ad": r["ay"], "gunler": g, "gercek": r["kwh"] / 1000.0, "plato": False,
+                        "w": float(np.sqrt(len(g))), "ay": True})
+    if f_gun:
+        t = t_gun
+        for _, r in t[t["gecerli"] == 1].iterrows():
+            if r["tarih"] in kapali:
+                continue
+            g = r["kwh"] / 1000.0
+            obs.append({"ad": f"{r['tarih']:%d.%m.%Y}", "gunler": [r["tarih"]], "gercek": g,
+                        "plato": g >= 0.985 * tavan, "w": 1.0, "ay": False})
+    obs = [o for o in obs if o["gercek"] > 0]
+    if not obs:
+        raise SystemExit("Kalibrasyon için veri bulunamadı.")
+    raws = daily_raws(sorted({d for o in obs for d in o["gunler"]}))
+    if not raws:
+        raise SystemExit("Model verisi alınamadı.")
+
+    gercek = np.array([o["gercek"] for o in obs])
+    plato = np.array([o["plato"] for o in obs])
+    w = np.array([o["w"] for o in obs])
+
+    def tahmin(m):
+        egri_ayarla(m)
+        D = daily_mwh(raws, {"x": 1.0})["x"]
+        return np.array([np.nan if D.reindex(o["gunler"]).isna().any() else D.reindex(o["gunler"]).sum() for o in obs])
+
+    def hata(P):
+        return np.where(plato, np.clip(gercek - P, 0, None), np.abs(P - gercek)) / gercek
+
+    def maliyet(m):
+        P = tahmin(m)
+        ok = ~np.isnan(P)
+        if not ok.any():
+            return np.inf
+        return float(np.where(ok, w * np.nan_to_num(hata(P)), 0).sum() + 0.5 * w.sum() * np.sum(np.diff(m) ** 2))
+
+    n_nokta = len(EGRI_V)
+    ks = np.round(np.arange(0.70, 1.8001, 0.02), 3)
+    c_sk = [maliyet([k] * n_nokta) for k in ks]
+    k0 = float(ks[int(np.argmin(c_sk))])
+    m, c_m = [k0] * n_nokta, min(c_sk)
+    c_skaler = c_m
+    n_gun_bilgi = sum(1 for o in obs if not o["ay"] and not o["plato"])
+    n_ay = sum(1 for o in obs if o["ay"])
+    yeterli = n_gun_bilgi >= 10 or n_ay >= 2
+    if yeterli:
+        for _ in range(3):
+            iyilesti = False
+            for j in range(n_nokta):
+                for dlt in np.arange(-0.20, 0.2001, 0.02):
+                    aday = list(m)
+                    aday[j] = float(np.clip(m[j] + dlt, 0.70, 1.80))
+                    c = maliyet(aday)
+                    if c < c_m - 1e-9:
+                        m, c_m, iyilesti = aday, c, True
+            if not iyilesti:
+                break
+        if c_m > 0.95 * c_skaler:                     # belirgin kazanç yoksa sade tek çarpan
+            m, c_m = [k0] * n_nokta, c_skaler
+    else:
+        print(f"Not: yeterli veri yok (plato dışı {n_gun_bilgi} gün, {n_ay} ay; en az 10 gün veya 2 ay). Eğri yerine tek çarpan kaydedildi.")
+
+    P0, P1 = tahmin([k0] * n_nokta), tahmin(m)
+    d = pd.DataFrame({"gözlem": [o["ad"] for o in obs], "Gerçek": gercek, f"Tek çarpan {k0:.2f}": P0, "Eğri": P1})
+    d["Hata % (tek)"] = (P0 - gercek) / gercek * 100
+    d["Hata % (eğri)"] = (P1 - gercek) / gercek * 100
+    print("\n=== KALİBRASYON: aylık + günlük birlikte (MWh) ===")
+    print(d.round(1).to_string(index=False))
+    print("Hız noktaları (m/s): " + ", ".join(f"{v:g}" for v in EGRI_V))
+    print("Öğrenilen çarpanlar : " + ", ".join(f"{x:.2f}" for x in m))
+
+    egri_ayarla(m)
+    k = float(np.mean(m))
+    KALIBRASYON.write_text(json.dumps({
+        "k": k, "egri": m, "egri_v": EGRI_V, "loss": LOSS, "hub": HUB, "agirlik": aktif_agirliklar(),
+        "gun": int(sum(len(o["gunler"]) for o in obs)), "tarih": pd.Timestamp.now().strftime("%d.%m.%Y"),
+        "kaynak": " + ".join(x for x in (f_ay, f_gun) if x), "tur": "birlesik"}, ensure_ascii=False))
+    print(f"Kaydedildi: {KALIBRASYON.resolve()}")
+    return k
+
+
 def run_modeller(path):
     """Geçmişe yönelik test: her modele kendi çarpanını vermek, ortak çarpandan daha iyi tahmin ediyor mu?
     Her gün sırayla dışarıda bırakılır, çarpanlar kalan günlerle ayarlanır ve o gün tahmin edilir."""
+    egri_ayarla(None)           # tek çarpan taraması: öğrenilmiş eğri devre dışı
     t = load_daily(path)
     t = t[t["gecerli"] == 1].copy()
     today = pd.Timestamp.now(tz=TZ).normalize().tz_localize(None)
@@ -1076,9 +1198,12 @@ if __name__ == "__main__":
     ap.add_argument("--gunluk", help="Günlük gerçek enerji CSV'si (tarih, kwh): modelle karşılaştırır")
     ap.add_argument("--aylik", help="Aylık SCADA toplamları CSV'si (ay, kwh): rüzgar çarpanını aylık toplamlara göre ayarlar ve kaydeder")
     ap.add_argument("--modeller", help="Günlük gerçek enerji CSV'si: her hava modelini ölçer, ağırlık önerir/kaydeder")
+    ap.add_argument("--hepsi", action="store_true", help="Yanındaki aylık ve günlük dosyanın hepsine birlikte uyan hıza bağlı kalibrasyonu yap ve kaydet")
     ap.add_argument("--kalibre", help="Günlük gerçek enerji CSV'si (tarih, kwh): rüzgar çarpanını gerçeğe göre ayarlar ve kaydeder")
     a = ap.parse_args()
-    if a.aylik:
+    if a.hepsi:
+        run_birlesik(next((f for f in AYLIK_DOSYALARI if Path(f).exists()), None), gunluk_dosya())
+    elif a.aylik:
         run_aylik(a.aylik)
     elif a.modeller:
         run_modeller(a.modeller)
