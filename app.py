@@ -69,9 +69,15 @@ if st.sidebar.button("Tahmini Getir / Çalıştır"):
         özel_ortam["TZ"] = "Europe/Istanbul"
         
         komut = f"{sys.executable} res_uretim_tahmini.py --gun {tarih_str}"
-        subprocess.run(komut, shell=True, env=özel_ortam)
+        sonuc = subprocess.run(komut, shell=True, env=özel_ortam, capture_output=True, text=True)
         
-    st.success(f"✅ {tarih_str} tarihli analiz başarıyla tamamlandı.")
+    if sonuc.returncode != 0:
+        st.error("Model çalışırken hata oluştu; aşağıdaki sonuçlar eski çalıştırmadan kalmış olabilir.")
+        st.code(sonuc.stderr[-3000:])
+    else:
+        st.success(f"✅ {tarih_str} tarihli analiz başarıyla tamamlandı.")
+    with st.expander("Model çıktısı (kalibrasyon bilgisi)"):
+        st.code(sonuc.stdout)
     
     # Çıktıların kaydedildiği klasör
     hedef_klasor = f"ÇIKTILAR/{tarih_str}"
