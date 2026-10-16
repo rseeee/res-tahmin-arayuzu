@@ -125,8 +125,24 @@ def hub_wind(d: pd.DataFrame) -> pd.Series:
 
 
 def to_power_kw(d: pd.DataFrame, carpan: float = 1.0) -> pd.Series:
-    """Hava verisinden (10 m, 100 m rüzgar, sıcaklık, basınç) kW üretir."""
-    v_hub = hub_wind(d) * carpan
+    """Hava verisinden (10 m, 100 m rüzgar, sıcaklık, basınç) kW üretir.
+    DİNAMİK PARÇALI ÇARPAN İLE GÜNCELLENDİ."""
+    v_raw = hub_wind(d)
+
+    # Parçalı (Piecewise) Rüzgar Kalibrasyonu
+    v_hub = v_raw.copy()
+    mask_low = v_raw < 4.0
+    mask_mid = (v_raw >= 4.0) & (v_raw < 12.0)
+    mask_high = v_raw >= 12.0
+
+    # 1. Cut-in bölgesi: Zayıf rüzgarları ölü bölgeden çıkarmak için agresif çarpan
+    v_hub[mask_low] = v_raw[mask_low] * (carpan * 1.15)
+
+    # 2. Kübik tırmanma: SCADA'dan öğrenilen standart çarpan
+    v_hub[mask_mid] = v_raw[mask_mid] * carpan
+
+    # 3. Plato bölgesi: 4.26 MW aşımını engellemek için çarpan etkisini sönümle
+    v_hub[mask_high] = v_raw[mask_high] * (1.0 + (carpan - 1.0) * 0.5)
 
     # hub yüksekliğinde hava yoğunluğu, güç eğrisi 1,225 kg/m3 içindir
     t_hub = d["temperature_2m"] + 273.15 - 0.0065 * (HUB - 2)

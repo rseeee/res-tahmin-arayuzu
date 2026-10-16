@@ -64,9 +64,12 @@ dosya_tarih = secilen_tarih.strftime("%Y-%m-%d")     # 2026-10-14 (Dosya isimler
 
 if st.sidebar.button("Tahmini Getir / Çalıştır"):
     with st.spinner(f"{tarih_str} için meteorolojik veriler işleniyor ve model çalıştırılıyor..."):
-        # Modeli arka planda çalıştır
+        # Bulut sunucusunu zorla Türkiye saatine (UTC+3) alıyoruz
+        özel_ortam = os.environ.copy()
+        özel_ortam["TZ"] = "Europe/Istanbul"
+        
         komut = f"{sys.executable} res_uretim_tahmini.py --gun {tarih_str}"
-        subprocess.run(komut, shell=True)
+        subprocess.run(komut, shell=True, env=özel_ortam)
         
     st.success(f"✅ {tarih_str} tarihli analiz başarıyla tamamlandı.")
     
