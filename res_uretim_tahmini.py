@@ -49,6 +49,7 @@ Güç eğrisi: Enercon "Technisches Datenblatt – Betriebsmodus OM-0-1, E-138 E
 SCADA'dan çıkardığın eğriyi "power_curve.csv" (sütunlar: v_ms,kw) olarak scriptin yanına koyarsan o kullanılır.
 """
 import contextlib
+import hashlib
 import io
 import json
 import re
@@ -342,11 +343,23 @@ def gunluk_dosya():
 AYLIK_DOSYALARI = ["aylik.csv", "aylik_ornek.csv", "aylik.xlsx", "aylik_ornek.xlsx"]
 
 
+def kalibrasyon_dosyalari():
+    return next((f for f in AYLIK_DOSYALARI if Path(f).exists()), None), gunluk_dosya()
+
+
+def veri_imzasi(f_ay=None, f_gun=None):
+    """Kalibrasyon dosyalarının içerik özeti; dosya değişince (yeni gün eklenince) farklı çıkar."""
+    h = hashlib.md5()
+    for f in (f_ay, f_gun):
+        if f and Path(f).exists():
+            h.update(Path(f).read_bytes())
+    return h.hexdigest()
+
+
 def otomatik_kalibre():
     """kalibrasyon.json yok veya ayarlarla uyumsuzsa, yanındaki aylık VE günlük dosyanın hepsine birlikte uyan
     rüzgar düzeltme eğrisini sessizce öğrenir (run_birlesik)."""
-    f_ay = next((f for f in AYLIK_DOSYALARI if Path(f).exists()), None)
-    f_gun = gunluk_dosya()
+    f_ay, f_gun = kalibrasyon_dosyalari()
     f = " + ".join(x for x in (f_ay, f_gun) if x) or None
     if not f or _OTO["aktif"]:
         return None, f
@@ -372,7 +385,10 @@ def secili_carpan(otomatik=True):
     if KALIBRASYON.exists():
         c = json.loads(KALIBRASYON.read_text())
         w_kayit = {m: float(x) for m, x in c.get("agirlik", {m: 1.0 for m in MODELS}).items()}
-        if abs(c.get("loss", 0) - LOSS) < 1e-9 and c.get("hub") == HUB and w_kayit == aktif_agirliklar():
+        bayat = bool(c.get("imza")) and otomatik and c["imza"] != veri_imzasi(*kalibrasyon_dosyalari())
+        if bayat:
+            print("Not: kalibrasyon dosyaları değişmiş (yeni gün eklenmiş), kalibrasyon yenilenecek.")
+        elif abs(c.get("loss", 0) - LOSS) < 1e-9 and c.get("hub") == HUB and w_kayit == aktif_agirliklar():
             if c.get("egri"):
                 egri_ayarla(c["egri"])
                 return float(c["k"]), f"kalibre (hıza bağlı eğri, {c['gun']} gün, {c['tarih']})"
@@ -380,7 +396,8 @@ def secili_carpan(otomatik=True):
                 return {m: float(x) for m, x in c["k_model"].items()}, f"kalibre (modele özel, {c['gun']} gün, {c['tarih']})"
             tur = "aylık toplamlar, " if c.get("tur") == "aylik" else ""
             return float(c["k"]), f"kalibre ({tur}{c['gun']} gün, {c['tarih']})"
-        print("Not: kalibrasyon.json başka LOSS/HUB/model ayarıyla yapılmış, yenilenecek.")
+        else:
+            print("Not: kalibrasyon.json başka LOSS/HUB/model ayarıyla yapılmış, yenilenecek.")
     if otomatik:
         k, f = otomatik_kalibre()
         if k is not None:
@@ -986,7 +1003,8 @@ def run_birlesik(f_ay=None, f_gun=None):
     KALIBRASYON.write_text(json.dumps({
         "k": k, "egri": m, "egri_v": EGRI_V, "loss": LOSS, "hub": HUB, "agirlik": aktif_agirliklar(),
         "gun": int(sum(len(o["gunler"]) for o in obs)), "tarih": pd.Timestamp.now().strftime("%d.%m.%Y"),
-        "kaynak": " + ".join(x for x in (f_ay, f_gun) if x), "tur": "birlesik"}, ensure_ascii=False))
+        "kaynak": " + ".join(x for x in (f_ay, f_gun) if x), "tur": "birlesik",
+        "imza": veri_imzasi(f_ay, f_gun)}, ensure_ascii=False))
     print(f"Kaydedildi: {KALIBRASYON.resolve()}")
     return k
 
