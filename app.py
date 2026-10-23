@@ -1,6 +1,6 @@
 """
 RES Üretim Tahmin ve Analiz Arayüzü — Streamlit Dashboard
-Geliştirme: app.py v4 (Dinamik Plotly Entegrasyonu)
+Geliştirme: app.py v5 (Streamlit Native Charts)
 """
 
 import streamlit as st
@@ -8,8 +8,6 @@ import subprocess, os, sys, base64, datetime, json
 import pandas as pd
 import numpy as np
 from PIL import Image
-import plotly.express as px
-import plotly.graph_objects as go
 
 # ── Sayfa ayarı ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -129,20 +127,16 @@ with t_ana:
         
         st.markdown("---")
 
-        # ── Dinamik Saatlik Üretim Grafiği (PNG yerine CSV'den) ───────────────
+        # ── Dinamik Saatlik Üretim Grafiği (Streamlit Native) ───────────────
         df_saatlik = saatlik_csv(klasor, dosya_tarih)
         if df_saatlik is not None and not df_saatlik.empty:
-            st.markdown("### 📈 Saatlik Üretim Tahmini")
-            fig_saatlik = px.line(
-                df_saatlik, 
-                y=[col for col in df_saatlik.columns if 'kw' in col.lower()],
-                labels={"index": "Tarih / Saat", "value": "Güç (kW)", "variable": "Model"},
-                title=f"Saatlik Üretim Profili (Başlangıç: {dosya_tarih})"
-            )
-            fig_saatlik.update_layout(hovermode="x unified", legend_title_text='Modeller')
-            st.plotly_chart(fig_saatlik, use_container_width=True)
+            st.markdown(f"### 📈 Saatlik Üretim Profili (Başlangıç: {dosya_tarih})")
+            # Sadece güç sütunlarını al
+            guc_sutunlari = [col for col in df_saatlik.columns if 'kw' in col.lower()]
+            if guc_sutunlari:
+                 st.line_chart(df_saatlik[guc_sutunlari], use_container_width=True)
 
-        # ── Haftalık tablo + Dinamik Bar Grafik (PNG yerine) ──────────────────
+        # ── Haftalık tablo + Dinamik Bar Grafik (Streamlit Native) ──────────────────
         st.markdown("### 📊 7 Günlük Öngörü")
         t_tablo, t_grafik = st.columns([1, 2])
 
@@ -157,17 +151,11 @@ with t_ana:
             st.info(f"**7 Gün Toplam:** {toplam:.1f} MWh  =  {toplam*1000:,.0f} kWh")
 
         with t_grafik:
-            fig_gunluk = px.bar(
-                df_goster, 
-                x="tarih", 
-                y="MWh", 
-                text="MWh",
-                labels={"tarih": "Tarih", "MWh": "Günlük Enerji (MWh)"},
-                title=f"Günlük Üretim Tahmini (Toplam ≈ {toplam:.0f} MWh)"
-            )
-            fig_gunluk.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-            fig_gunluk.update_layout(yaxis_range=[0, df_goster['MWh'].max() * 1.2]) 
-            st.plotly_chart(fig_gunluk, use_container_width=True)
+            st.markdown(f"**Günlük Üretim Tahmini (MWh)**")
+            # Tarihleri index yaparak bar chart'a besle
+            df_bar = df7.copy()
+            df_bar.set_index("tarih", inplace=True)
+            st.bar_chart(df_bar["MWh"], use_container_width=True)
 
     else:
         st.info(f"'{tarih_str}' için henüz tahmin yok. Yukarıdan tahmini getirin.")
